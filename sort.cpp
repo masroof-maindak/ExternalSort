@@ -1,10 +1,8 @@
 #include <iostream>
 #include <fstream>
 #include <vector>
-#include <climits>
+#include <limits.h>
 #include <queue>
-#include <utility>
-#include "queue.h"
 
 #define oneMB 1024 * 1024 / sizeof(int)
 #define halfKB 256 / sizeof(int)
@@ -15,6 +13,19 @@
 struct chunkInfo {
     std::streampos posToRead;   // WHERE this chunk begins
     int numsLeft;               // HOW MANY integers are left in this chunk
+};
+
+struct bufferVal {
+    int val;
+    int chunkIndex;
+
+    bool operator>(const bufferVal& other) const {
+        return val > other.val;
+    }
+
+    bool operator<(const bufferVal& other) const {
+        return val < other.val;
+    }
 };
 
 int partition(int* arr, int low, int high) {
@@ -116,8 +127,7 @@ void produceSortedChunks(std::ifstream& in, std::fstream& out, chunkInfo*& chunk
     out.close();
 }
 
-
-void generateBuffers (std::vector<Queue<int>>& buffers, chunkInfo*& chunkInfoArr, std::fstream& tempFile, int subchunkSize) {
+void generateBuffers (std::vector<std::queue<int>>& buffers, chunkInfo*& chunkInfoArr, std::fstream& tempFile, int subchunkSize) {
     // If a buffer is empty and has numbers left in its corresponding chunk, then grab
     // 'as much as you can' (subchunk or less) from that chunk and put it in the buffer
     for (int i = 0; i < buffers.size(); i++) {
@@ -131,7 +141,7 @@ void generateBuffers (std::vector<Queue<int>>& buffers, chunkInfo*& chunkInfoArr
             chunkInfoArr[i].numsLeft -= subchunkSize;
 
             for(int j = 0; j < subchunkSize; j++)
-                buffers[i].push_back(subchunk[j]);
+                buffers[i].push(subchunk[j]);
 
             delete[] subchunk;
         }
@@ -147,27 +157,27 @@ void mergeChunks(std::fstream& temp, std::ostream& out, chunkInfo*& chunkInfoArr
 
     int subchunkSize = numInts / chunk_size + 1;
 
-    std::vector<Queue<int>> buffers(numChunks);
+    std::vector<std::queue<int>> buffers(numChunks);
     generateBuffers (buffers, chunkInfoArr, temp, subchunkSize);
 
     int counter = 0;
     int* smallestValues = new int[subchunkSize];
-    std::priority_queue<std::pair<int, int>, std::vector<std::pair<int, int>>, std::greater<std::pair<int, int>>> smallest;
+    std::priority_queue<bufferVal, std::vector<bufferVal>, std::greater<bufferVal>> minheap;
 
-    // TEST: Alternate implementation using priority queue
+    // TEST: Alternate implementation using a priority queue
     for (int i = 0; i < buffers.size(); i++)
         if (!buffers[i].empty())
-            smallest.push(std::make_pair(buffers[i].front(), i));
+            minheap.push({buffers[i].front(), i});
 
-    while (!smallest.empty()) {
+    while (!minheap.empty()) {
         // 1. Get the smallest value across all the smallest values
-        std::pair<int,int> minPair = smallest.top();
-        smallest.pop();
-        int minIndex = minIndex;
+        bufferVal minPair = minheap.top();
+        minheap.pop();
+        int minIndex = minPair.chunkIndex;
 
         // 2. Push it to an array of the smallest values, and remove it from its respective queue
-        smallestValues[counter++] = minPair.first;
-        buffers[minIndex].pop_front();
+        smallestValues[counter++] = minPair.val;
+        buffers[minIndex].pop();
 
         // 3. If that buffer is now empty, but has more integers to read, read them
         if (buffers[minIndex].empty() and chunkInfoArr[minIndex].numsLeft > 0) {
@@ -184,16 +194,16 @@ void mergeChunks(std::fstream& temp, std::ostream& out, chunkInfo*& chunkInfoArr
 
             // Push the read integers to the buffer
             for(int j = 0; j < valuesToRead; j++)
-                buffers[minIndex].push_back(subchunk[j]);
+                buffers[minIndex].push(subchunk[j]);
 
             delete[] subchunk;
         }
 
-        // 3.5. If the buffer is (now) not empty, push its smallest value (i.e first) to the minheap
+        // 3.5. If the buffer is (now) not empty, push its minheap value (i.e first) to the minheap
             if (!buffers[minIndex].empty())
-                smallest.push(std::make_pair(buffers[minIndex].front(), minIndex));
+                minheap.push({buffers[minIndex].front(), minIndex});
 
-        // 5. If the array of smallest values is full, write to file
+        // 5. If the array of minheap values is full, write to file
         if (counter == subchunkSize) {
             out.write((char*)smallestValues, counter * sizeof(int));
             counter = 0;
@@ -211,7 +221,7 @@ void mergeChunks(std::fstream& temp, std::ostream& out, chunkInfo*& chunkInfoArr
         int minValue = INT_MAX;
         int minValueIndex = 0;
 
-        // 1. Get the smallest value from each chunk's queue
+        // 1. Get the minheap value from each chunk's std::queue
         for (int i = 0; i < buffers.size(); i++) {
             if (!buffers[i].empty() and buffers[i].front() < minValue) {
                 minValue = buffers[i].front();
@@ -219,15 +229,11 @@ void mergeChunks(std::fstream& temp, std::ostream& out, chunkInfo*& chunkInfoArr
             }
         }
 
-        // TODO: Instead of manual searching, replace the above with a priority queue?
-        // We would need to make it a queue of pair<int,int> though so we can also store
-        // the index of the buffer where that value came from
-
-        // 2. Push the min value to an array of the smallest values, and remove it from its queue
+        // 2. Push the min value to an array of the minheap values, and remove it from its std::queue
         smallestValues[counter++] = minValue;
         buffers[minValueIndex].pop_front();
 
-        // 3. If removing the smallest value made a chunk's queue (buffer) go empty, 'replenish'
+        // 3. If removing the minheap value made a chunk's std::queue (buffer) go empty, 'replenish'
         if (buffers[minValueIndex].empty())
             generateBuffers(buffers, chunkInfoArr, temp, subchunkSize);
 
@@ -239,7 +245,7 @@ void mergeChunks(std::fstream& temp, std::ostream& out, chunkInfo*& chunkInfoArr
             }
         }
     
-        // 5. If the array of smallest values is full or we have emptied the buffers, write to file
+        // 5. If the array of minheap values is full or we have emptied the buffers, write to file
         if (counter == subchunkSize or everythingEmpty) {
             out.write((char*)smallestValues, counter * sizeof(int));
             counter = 0;
@@ -265,6 +271,8 @@ int main(int argc, char** argv) {
         return 1;
     }
 
+    // TODO: eliminate temp file
+
     std::string fileName = argv[1];
     std::string tempFileName = "temp-" + fileName;
     std::string newFileName = "sorted-" + fileName;
@@ -274,7 +282,7 @@ int main(int argc, char** argv) {
     std::ifstream fileIn;
 
     chunkInfo* chunkInfoArr;
-    int numChunks; //functions as size for chunkPositions
+    int numChunks; //functions as 'size' for chunkPositions
 
     fileIn.open(fileName, std::ios::binary);
     fileTemp.open(tempFileName, std::ios::binary | std::ios::out);
