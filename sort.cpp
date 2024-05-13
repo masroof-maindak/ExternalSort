@@ -1,8 +1,9 @@
 #include <iostream>
 #include <fstream>
-#include <algorithm>
 #include <vector>
 #include <climits>
+#include <queue>
+#include <utility>
 #include "queue.h"
 
 #define oneMB 1024 * 1024 / sizeof(int)
@@ -12,8 +13,8 @@
 #define chunk_size oneMB
 
 struct chunkInfo {
-    std::streampos posToRead;
-    int numsLeft;
+    std::streampos posToRead;   // WHERE this chunk begins
+    int numsLeft;               // HOW MANY integers are left in this chunk
 };
 
 int partition(int* arr, int low, int high) {
@@ -61,16 +62,20 @@ void printFile(std::string fileName) {
 }
 
 void produceSortedChunks(std::ifstream& in, std::fstream& out, chunkInfo*& chunkInfoArr, int& numChunks) {
-    int numInts;
+    int numInts = 0;
     in.read((char*)&numInts, sizeof(int));
     out.write((char*)&numInts, sizeof(int));
 
     int chunkSize = chunk_size;
+
+    // TODO: Make this concise
     int numFullChunks = numInts / chunkSize;
     int imbalance = (numInts % chunkSize == 0) ? 0 : 1;
+    numChunks = numFullChunks + imbalance;
+    
+    chunkInfoArr = new chunkInfo[numChunks];
 
-    chunkInfoArr = new chunkInfo[numFullChunks + imbalance];
-
+    /*
     for(int i = 0; i < numFullChunks; i++) {
         chunkInfoArr[i].posToRead = in.tellg();
         chunkInfoArr[i].numsLeft = chunkSize;
@@ -80,8 +85,6 @@ void produceSortedChunks(std::ifstream& in, std::fstream& out, chunkInfo*& chunk
         out.write((char*)chunk, chunkSize * sizeof(int));
         delete[] chunk;
     }
-
-    numChunks = numFullChunks + imbalance;
 
     if (imbalance == 1) {
         int remainingInts = numInts % chunkSize;
@@ -93,17 +96,32 @@ void produceSortedChunks(std::ifstream& in, std::fstream& out, chunkInfo*& chunk
         out.write((char*)chunk, remainingInts * sizeof(int));
         delete[] chunk;
     }
+    */
+        
+    // TEST: Combined both blocks above into one
+    int remainingInts = numInts;
+    for(int i = 0; i < numChunks; i++) {
+        int thisChunksSize = std::min(chunkSize, remainingInts);
+        chunkInfoArr[i].posToRead = in.tellg();
+        chunkInfoArr[i].numsLeft = thisChunksSize;
+        int* chunk = new int[thisChunksSize];
+        in.read((char*)chunk, thisChunksSize * sizeof(int));
+        quickSort(chunk, 0, thisChunksSize - 1);
+        out.write((char*)chunk, thisChunksSize * sizeof(int));
+        delete[] chunk;
+        remainingInts -= thisChunksSize;
+    }
 
     in.close();
     out.close();
 }
 
+
 void generateBuffers (std::vector<Queue<int>>& buffers, chunkInfo*& chunkInfoArr, std::fstream& tempFile, int subchunkSize) {
-
+    // If a buffer is empty and has numbers left in its corresponding chunk, then grab
+    // 'as much as you can' (subchunk or less) from that chunk and put it in the buffer
     for (int i = 0; i < buffers.size(); i++) {
-
         if (buffers[i].empty() and chunkInfoArr[i].numsLeft > 0) {
-
             subchunkSize = std::min(subchunkSize, chunkInfoArr[i].numsLeft);
             int* subchunk = new int[subchunkSize];
             tempFile.seekg(chunkInfoArr[i].posToRead);
@@ -120,57 +138,118 @@ void generateBuffers (std::vector<Queue<int>>& buffers, chunkInfo*& chunkInfoArr
     }
 }
 
+
 void mergeChunks(std::fstream& temp, std::ostream& out, chunkInfo*& chunkInfoArr, int numChunks) {
     int numInts;
     temp.seekg(0);
     temp.read((char*)&numInts, sizeof(int));
     out.write((char*)&numInts, sizeof(int));
 
-    std::streampos curr;
-
     int subchunkSize = numInts / chunk_size + 1;
 
     std::vector<Queue<int>> buffers(numChunks);
-    generateBuffers(buffers, chunkInfoArr, temp, subchunkSize);
+    generateBuffers (buffers, chunkInfoArr, temp, subchunkSize);
 
     int counter = 0;
-    
     int* smallestValues = new int[subchunkSize];
+    std::priority_queue<std::pair<int, int>, std::vector<std::pair<int, int>>, std::greater<std::pair<int, int>>> smallest;
 
+    // TEST: Alternate implementation using priority queue
+    for (int i = 0; i < buffers.size(); i++)
+        if (!buffers[i].empty())
+            smallest.push(std::make_pair(buffers[i].front(), i));
+
+    while (!smallest.empty()) {
+        // 1. Get the smallest value across all the smallest values
+        std::pair<int,int> minPair = smallest.top();
+        smallest.pop();
+        int minIndex = minIndex;
+
+        // 2. Push it to an array of the smallest values, and remove it from its respective queue
+        smallestValues[counter++] = minPair.first;
+        buffers[minIndex].pop_front();
+
+        // 3. If that buffer is now empty, but has more integers to read, read them
+        if (buffers[minIndex].empty() and chunkInfoArr[minIndex].numsLeft > 0) {
+            int valuesToRead = std::min(subchunkSize, chunkInfoArr[minIndex].numsLeft);
+            int* subchunk = new int[valuesToRead];
+
+            // Navigate to where that chunk begins and read the next 'valuesToRead' integers
+            temp.seekg(chunkInfoArr[minIndex].posToRead);
+            temp.read((char*)subchunk, valuesToRead * sizeof(int));
+
+            // Update chunk info
+            chunkInfoArr[minIndex].posToRead += (valuesToRead * sizeof(int));
+            chunkInfoArr[minIndex].numsLeft -= valuesToRead;
+
+            // Push the read integers to the buffer
+            for(int j = 0; j < valuesToRead; j++)
+                buffers[minIndex].push_back(subchunk[j]);
+
+            delete[] subchunk;
+        }
+
+        // 3.5. If the buffer is (now) not empty, push its smallest value (i.e first) to the minheap
+            if (!buffers[minIndex].empty())
+                smallest.push(std::make_pair(buffers[minIndex].front(), minIndex));
+
+        // 5. If the array of smallest values is full, write to file
+        if (counter == subchunkSize) {
+            out.write((char*)smallestValues, counter * sizeof(int));
+            counter = 0;
+        }
+    }
+
+    // Write what's left
+    out.write((char*)smallestValues, counter * sizeof(int));
+    delete[] smallestValues;
+
+    // Original implementation
+    /*
     while (true) {
         bool everythingEmpty = true;
-
         int minValue = INT_MAX;
         int minValueIndex = 0;
 
-        for (int bufferNo = 0; bufferNo < buffers.size(); bufferNo++) {
-            if (!buffers[bufferNo].empty() and buffers[bufferNo].front() < minValue) {
-                minValue = buffers[bufferNo].front();
-                minValueIndex = bufferNo;
+        // 1. Get the smallest value from each chunk's queue
+        for (int i = 0; i < buffers.size(); i++) {
+            if (!buffers[i].empty() and buffers[i].front() < minValue) {
+                minValue = buffers[i].front();
+                minValueIndex = i;
             }
         }
 
+        // TODO: Instead of manual searching, replace the above with a priority queue?
+        // We would need to make it a queue of pair<int,int> though so we can also store
+        // the index of the buffer where that value came from
+
+        // 2. Push the min value to an array of the smallest values, and remove it from its queue
         smallestValues[counter++] = minValue;
         buffers[minValueIndex].pop_front();
 
+        // 3. If removing the smallest value made a chunk's queue (buffer) go empty, 'replenish'
         if (buffers[minValueIndex].empty())
             generateBuffers(buffers, chunkInfoArr, temp, subchunkSize);
 
+        // 4. Check if a single empty buffer exists
         for (int i = 0; i < numChunks; i++) {
             if (chunkInfoArr[i].numsLeft > 0 or !buffers[i].empty()) {
                 everythingEmpty = false;
                 break;
             }
         }
-
+    
+        // 5. If the array of smallest values is full or we have emptied the buffers, write to file
         if (counter == subchunkSize or everythingEmpty) {
             out.write((char*)smallestValues, counter * sizeof(int));
             counter = 0;
         }
-
+    
+        // 6. If all the buffers are empty, we are bound to have written them as per above, so exit
         if (everythingEmpty)
             break;
     }
+    */
 
     temp.close();
 }
