@@ -79,11 +79,9 @@ void produceSortedChunks(std::ifstream& in, std::fstream& out, chunkInfo*& chunk
 
     int chunkSize = chunk_size;
 
-    // TODO: Make this concise
     int numFullChunks = numInts / chunkSize;
     int imbalance = (numInts % chunkSize == 0) ? 0 : 1;
     numChunks = numFullChunks + imbalance;
-    
     chunkInfoArr = new chunkInfo[numChunks];
 
     /*
@@ -112,13 +110,18 @@ void produceSortedChunks(std::ifstream& in, std::fstream& out, chunkInfo*& chunk
     // TEST: Combined both blocks above into one
     int remainingInts = numInts;
     for(int i = 0; i < numChunks; i++) {
+
         int thisChunksSize = std::min(chunkSize, remainingInts);
         chunkInfoArr[i].posToRead = in.tellg();
         chunkInfoArr[i].numsLeft = thisChunksSize;
+
         int* chunk = new int[thisChunksSize];
+        //TODO: Replace int* w/ std::vector<int>
         in.read((char*)chunk, thisChunksSize * sizeof(int));
+        //TODO: Change sorting algorithm
         quickSort(chunk, 0, thisChunksSize - 1);
         out.write((char*)chunk, thisChunksSize * sizeof(int));
+
         delete[] chunk;
         remainingInts -= thisChunksSize;
     }
@@ -131,7 +134,7 @@ void generateBuffers (std::vector<std::queue<int>>& buffers, chunkInfo*& chunkIn
     // If a buffer is empty and has numbers left in its corresponding chunk, then grab
     // 'as much as you can' (subchunk or less) from that chunk and put it in the buffer
     for (int i = 0; i < buffers.size(); i++) {
-        if (buffers[i].empty() and chunkInfoArr[i].numsLeft > 0) {
+        // if (buffers[i].empty() and chunkInfoArr[i].numsLeft > 0) {
             subchunkSize = std::min(subchunkSize, chunkInfoArr[i].numsLeft);
             int* subchunk = new int[subchunkSize];
             tempFile.seekg(chunkInfoArr[i].posToRead);
@@ -144,7 +147,7 @@ void generateBuffers (std::vector<std::queue<int>>& buffers, chunkInfo*& chunkIn
                 buffers[i].push(subchunk[j]);
 
             delete[] subchunk;
-        }
+        // }
     }
 }
 
@@ -166,8 +169,8 @@ void mergeChunks(std::fstream& temp, std::ostream& out, chunkInfo*& chunkInfoArr
 
     // TEST: Alternate implementation using a priority queue
     for (int i = 0; i < buffers.size(); i++)
-        if (!buffers[i].empty())
-            minheap.push({buffers[i].front(), i});
+        // if (!buffers[i].empty())
+        minheap.push({buffers[i].front(), i});
 
     while (!minheap.empty()) {
         // 1. Get the smallest value across all the smallest values
@@ -203,7 +206,7 @@ void mergeChunks(std::fstream& temp, std::ostream& out, chunkInfo*& chunkInfoArr
             if (!buffers[minIndex].empty())
                 minheap.push({buffers[minIndex].front(), minIndex});
 
-        // 5. If the array of minheap values is full, write to file
+        // 5. If the array of minheap values is full, write to file and reset the counter
         if (counter == subchunkSize) {
             out.write((char*)smallestValues, counter * sizeof(int));
             counter = 0;
@@ -271,8 +274,7 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    // TODO: eliminate temp file
-
+    // TODO(?): eliminate temp file
     std::string fileName = argv[1];
     std::string tempFileName = "temp-" + fileName;
     std::string newFileName = "sorted-" + fileName;
