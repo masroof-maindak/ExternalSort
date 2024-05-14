@@ -9,7 +9,7 @@
 #define oneMB 1024 * 1024 / sizeof(std::uint32_t)
 #define halfKB 256 / sizeof(std::uint32_t)
 #define eightNums 32 / sizeof(std::uint32_t)
-const int chunk_size = oneMB;
+const int chunk_size = oneMB * 10;
 
 struct chunkInfo {
     std::streampos posToRead;   // WHERE this chunk begins
@@ -22,10 +22,6 @@ struct bufferVal {
 
     bool operator>(const bufferVal& other) const {
         return val > other.val;
-    }
-
-    bool operator<(const bufferVal& other) const {
-        return val < other.val;
     }
 };
 
@@ -43,7 +39,7 @@ void printFile(std::string fileName) {
             std::cout << chunk[j] << " ";
         remainingInts -= thisChunksSize;
     } 
-    std::cout << std::endl;
+    std::cout << "\n";
 
     out.close();
 }
@@ -80,15 +76,12 @@ void replenishBuffer(std::vector<std::queue<int>>& buffers, std::vector<chunkInf
     subchunkSize = std::min(subchunkSize, chunkInfoArr[chunkIndex].numsLeft);
     std::vector<int> subchunk (subchunkSize);
     
-    // Navigate to where that chunk begins and read the next 'valuesToRead' integers
     tempFile.seekg(chunkInfoArr[chunkIndex].posToRead);
     tempFile.read((char*)subchunk.data(), subchunkSize * sizeof(int));
     
-    // Update chunk info
     chunkInfoArr[chunkIndex].posToRead += (subchunkSize * sizeof(int));
     chunkInfoArr[chunkIndex].numsLeft -= subchunkSize;
     
-    // Push the read integers to the buffer
     for(int j = 0; j < subchunkSize; j++)
         buffers[chunkIndex].push(subchunk[j]);
 }
@@ -137,8 +130,9 @@ void mergeSortedChunks(std::fstream& temp, std::ostream& out, std::vector<chunkI
         }
     }
 
-    // Write what's left
-    out.write((char*)smallestValues.data(), counter * sizeof(int));
+    if (counter > 0)
+        out.write((char*)smallestValues.data(), counter * sizeof(int));
+    
     temp.close();
 }
 

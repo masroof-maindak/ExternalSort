@@ -16,7 +16,7 @@ int main(int argc, char** argv) {
 
     if (file.is_open()) {
         for (int i = 0; i < numInts; i++) {
-            int randNo = rand() % 10000000;
+            int randNo = rand() % 1000000000;
             file.write((char*)&randNo, sizeof(int));
         }
     }
