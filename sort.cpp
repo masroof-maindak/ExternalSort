@@ -44,14 +44,14 @@ void printFile(std::string fileName) {
     out.close();
 }
 
-void produceSortedChunks(std::ifstream& in, std::fstream& out, std::vector<chunkInfo>& chunkInfoArr, int& numChunks) {
+int produceSortedChunks(std::ifstream& in, std::fstream& out, std::vector<chunkInfo>& chunkInfoArr) {
     int numInts = 0;
     in.read((char*)&numInts, sizeof(int));
     out.write((char*)&numInts, sizeof(int));
 
     int numFullChunks = numInts / chunk_size;
     int imbalance = (numInts % chunk_size == 0) ? 0 : 1;
-    numChunks = numFullChunks + imbalance;
+    int numChunks = numFullChunks + imbalance;
     chunkInfoArr.resize(numChunks);
 
     int remainingInts = numInts;
@@ -70,6 +70,7 @@ void produceSortedChunks(std::ifstream& in, std::fstream& out, std::vector<chunk
 
     in.close();
     out.close();
+    return numChunks;
 }
 
 void replenishBuffer(std::vector<std::queue<int>>& buffers, std::vector<chunkInfo>& chunkInfoArr, std::fstream& tempFile, int subchunkSize, int chunkIndex) {
@@ -156,18 +157,17 @@ int main(int argc, char** argv) {
     std::ifstream fileIn;
 
     std::vector<chunkInfo> chunkInfoArr;
-    int numChunks; //functions as 'size' for chunkPositions
 
     fileIn.open(fileName, std::ios::binary);
     fileTemp.open(tempFileName, std::ios::binary | std::ios::out);
-    produceSortedChunks(fileIn, fileTemp, chunkInfoArr, numChunks);
+    int numChunks = produceSortedChunks(fileIn, fileTemp, chunkInfoArr);
 
     fileTemp.open(tempFileName, std::ios::binary | std::ios::in);
     fileOut.open(newFileName, std::ios::binary);
     mergeSortedChunks(fileTemp, fileOut, chunkInfoArr, numChunks);
 
     fileOut.close();
-    printFile(newFileName);
+    // printFile(newFileName);
 
     return 0;
 }
