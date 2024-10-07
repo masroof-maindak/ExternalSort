@@ -9,35 +9,34 @@
 #define oneMB	  1024 * 1024 / sizeof(std::uint32_t)
 #define halfKB	  256 / sizeof(std::uint32_t)
 #define eightNums 32 / sizeof(std::uint32_t)
-const int chunk_size = oneMB * 10;
+const int chunkSize = oneMB * 10;
 
 struct chunkInfo {
 	std::streampos posToRead; // Where this chunk begins
-	int numsLeft;			  // How many integers are left in this chunk
+	size_t numsLeft;		  // How many integers are left in this chunk
 };
 
-struct bufferVal {
-	int val;
-	int chunkIndex;
-
-	bool operator>(const bufferVal &other) const { return val > other.val; }
+struct bufValue {
+	int32_t val;
+	size_t chunkIndex;
+	bool operator>(const bufValue &other) const { return val > other.val; }
 };
 
 void printFile(std::string fileName) {
 	std::ifstream out(fileName, std::ios::binary);
-	int numInts = 0;
+	int32_t numInts = 0;
 	out.read((char *)&numInts, sizeof(int));
 
-	int remainingInts = numInts;
-	while (remainingInts > 0) {
-		int currChunkSize = std::min(chunk_size, remainingInts);
+	int32_t intsLeft = numInts;
+	while (intsLeft > 0) {
+		size_t currChunkSize = std::min(chunkSize, intsLeft);
 
-		std::vector<int> chunk(currChunkSize);
-		out.read((char *)chunk.data(), currChunkSize * sizeof(int));
+		std::vector<int32_t> chunk(currChunkSize);
+		out.read((char *)chunk.data(), currChunkSize * sizeof(int32_t));
 
 		for (int j = 0; j < currChunkSize; j++)
 			std::cout << chunk[j] << " ";
-		remainingInts -= currChunkSize;
+		intsLeft -= currChunkSize;
 	}
 
 	std::cout << "\n";
@@ -51,100 +50,98 @@ int produceSortedChunks(std::ifstream &in, std::fstream &out,
 	in.read((char *)&numInts, sizeof(int));
 	out.write((char *)&numInts, sizeof(int));
 
-	int numFullChunks = numInts / chunk_size;
-	int imbalance	  = (numInts % chunk_size == 0) ? 0 : 1;
-	int numChunks	  = numFullChunks + imbalance;
+	size_t numFullChunks = numInts / chunkSize;
+	uint8_t imbalance	 = (numInts % chunkSize == 0) ? 0 : 1;
+	size_t numChunks	 = numFullChunks + imbalance;
 
 	chunkInfoArr.resize(numChunks);
 
-	int remainingInts = numInts;
+	int intsLeft = numInts;
 	for (int i = 0; i < numChunks; i++) {
-		int thisChunksSize		  = std::min(chunk_size, remainingInts);
+		size_t currChunkSize	  = std::min(chunkSize, intsLeft);
 		chunkInfoArr[i].posToRead = in.tellg();
-		chunkInfoArr[i].numsLeft  = thisChunksSize;
+		chunkInfoArr[i].numsLeft  = currChunkSize;
 
-		std::vector<int> chunk(thisChunksSize);
-		in.read((char *)chunk.data(), thisChunksSize * sizeof(int));
+		std::vector<int32_t> chunk(currChunkSize);
+		in.read((char *)chunk.data(), currChunkSize * sizeof(int32_t));
 		std::sort(chunk.begin(), chunk.end());
-		out.write((char *)chunk.data(), thisChunksSize * sizeof(int));
+		out.write((char *)chunk.data(), currChunkSize * sizeof(int32_t));
 
-		remainingInts -= thisChunksSize;
+		intsLeft -= currChunkSize;
 	}
 
 	return numChunks;
 }
 
 void replenishBuffer(std::vector<std::queue<int>> &buffers,
-					 std::vector<chunkInfo> &chunkInfoArr,
-					 std::fstream &tempFile, int subchunkSize, int chunkIndex) {
+					 std::vector<chunkInfo> &chunkInfoArr, std::fstream &tmp,
+					 size_t subchunkSize, int cIdx) {
 
-	subchunkSize = std::min(subchunkSize, chunkInfoArr[chunkIndex].numsLeft);
-	std::vector<int> subchunk(subchunkSize);
+	subchunkSize = std::min(subchunkSize, chunkInfoArr[cIdx].numsLeft);
+	std::vector<int32_t> subchunk(subchunkSize);
 
-	tempFile.seekg(chunkInfoArr[chunkIndex].posToRead);
-	tempFile.read((char *)subchunk.data(), subchunkSize * sizeof(int));
+	tmp.seekg(chunkInfoArr[cIdx].posToRead);
+	tmp.read((char *)subchunk.data(), subchunkSize * sizeof(int32_t));
 
-	chunkInfoArr[chunkIndex].posToRead += (subchunkSize * sizeof(int));
-	chunkInfoArr[chunkIndex].numsLeft -= subchunkSize;
+	chunkInfoArr[cIdx].posToRead += (subchunkSize * sizeof(int32_t));
+	chunkInfoArr[cIdx].numsLeft -= subchunkSize;
 
 	for (int j = 0; j < subchunkSize; j++)
-		buffers[chunkIndex].push(subchunk[j]);
+		buffers[cIdx].push(subchunk[j]);
 }
 
-void mergeSortedChunks(std::fstream &temp, std::ostream &out,
-					   std::vector<chunkInfo> &chunkInfoArr, int numChunks) {
-	int numInts;
-	temp.seekg(0);
-	temp.read((char *)&numInts, sizeof(int));
-	out.write((char *)&numInts, sizeof(int));
+void mergeSortedChunks(std::fstream &tmp, std::ostream &out,
+					   std::vector<chunkInfo> &chunkInfoArr, size_t numChunks) {
+	size_t numInts;
+	tmp.seekg(0);
+	tmp.read((char *)&numInts, sizeof(int32_t));
+	out.write((char *)&numInts, sizeof(int32_t));
 
-	int subchunkSize = numInts / chunk_size + 1;
+	size_t subchunkSize = numInts / chunkSize + 1;
 
-	std::vector<std::queue<int>> buffers(numChunks);
+	std::vector<std::queue<int32_t>> buffers(numChunks);
 	for (int i = 0; i < buffers.size(); i++)
-		replenishBuffer(buffers, chunkInfoArr, temp, subchunkSize, i);
+		replenishBuffer(buffers, chunkInfoArr, tmp, subchunkSize, i);
 
-	int counter = 0;
-	std::vector<int> smallestValues(subchunkSize);
-	std::priority_queue<bufferVal, std::vector<bufferVal>,
-						std::greater<bufferVal>>
-		minheap;
+	int ctr = 0;
+	std::vector<int32_t> smallestValues(subchunkSize);
+	std::priority_queue<bufValue, std::vector<bufValue>, std::greater<bufValue>>
+		mh;
 
 	for (int i = 0; i < buffers.size(); i++)
-		minheap.push({buffers[i].front(), i});
+		mh.push({buffers[i].front(), (size_t)i});
 
-	while (!minheap.empty()) {
+	while (!mh.empty()) {
 		// 1. Get the smallest value across all the smallest values
-		bufferVal minPair = minheap.top();
-		minheap.pop();
-		int minIndex = minPair.chunkIndex;
+		bufValue minPair = mh.top();
+		mh.pop();
+		size_t minIdx = minPair.chunkIndex;
 
 		// 2. Push it to an array of the smallest values, and remove it from its
 		// respective queue
-		smallestValues[counter++] = minPair.val;
-		buffers[minIndex].pop();
+		smallestValues[ctr++] = minPair.val;
+		buffers[minIdx].pop();
 
 		// 3. If that buffer is now empty, but has more integers to read, read
 		// them
-		if (buffers[minIndex].empty() and chunkInfoArr[minIndex].numsLeft > 0)
-			replenishBuffer(buffers, chunkInfoArr, temp, subchunkSize,
-							minIndex);
+		if (buffers[minIdx].empty() and chunkInfoArr[minIdx].numsLeft > 0)
+			replenishBuffer(buffers, chunkInfoArr, tmp, subchunkSize, minIdx);
 
 		// 4. If the buffer is not empty, push its minheap value (i.e first) to
 		// the minheap
-		if (!buffers[minIndex].empty())
-			minheap.push({buffers[minIndex].front(), minIndex});
+		if (!buffers[minIdx].empty())
+			mh.push({buffers[minIdx].front(), minIdx});
 
 		// 5. If the array of minheap values is full, write to file and reset
 		// the counter
-		if (counter == subchunkSize) {
-			out.write((char *)smallestValues.data(), counter * sizeof(int));
-			counter = 0;
+		if (ctr == subchunkSize) {
+			out.write((char *)smallestValues.data(), ctr * sizeof(int32_t));
+			ctr = 0;
 		}
 	}
 
-	if (counter > 0)
-		out.write((char *)smallestValues.data(), counter * sizeof(int));
+	if (ctr > 0)
+		out.write((char *)smallestValues.data(), ctr * sizeof(int32_t));
 }
 
 int main(int argc, char **argv) {
@@ -163,19 +160,19 @@ int main(int argc, char **argv) {
 	std::string newFileName	 = "sorted-" + fileName;
 
 	std::ofstream fileOut;
-	std::fstream fileTemp;
+	std::fstream fileTmp;
 	std::ifstream fileIn;
 
 	std::vector<chunkInfo> chunkInfoArr;
 
 	fileIn.open(fileName, std::ios::binary);
-	fileTemp.open(tempFileName, std::ios::binary | std::ios::out);
-	int numChunks = produceSortedChunks(fileIn, fileTemp, chunkInfoArr);
+	fileTmp.open(tempFileName, std::ios::binary | std::ios::out);
+	int numChunks = produceSortedChunks(fileIn, fileTmp, chunkInfoArr);
 	fileIn.close();
 
 	fileOut.open(newFileName, std::ios::binary);
-	mergeSortedChunks(fileTemp, fileOut, chunkInfoArr, numChunks);
-	fileTemp.close();
+	mergeSortedChunks(fileTmp, fileOut, chunkInfoArr, numChunks);
+	fileTmp.close();
 	fileOut.close();
 
 	printFile(newFileName);
