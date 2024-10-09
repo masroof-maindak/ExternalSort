@@ -1,13 +1,13 @@
 Default:
 rng:
-	g++ generateRandomFile.cpp -o randomGenerator
+	g++ generateRandomFile.cpp -o rngF
 sorter:
-	g++ sort.cpp -o sort
+	g++ src.cpp -o extS
 
 gen:
-	clear && ./randomGenerator random.bin 10
+	clear && ./rngF random.bin 10
 run:
-	clear && ./sort random.bin
+	clear && ./extS random.bin
 
 clean:
 	rm -f randomGenerator sort *.bin
